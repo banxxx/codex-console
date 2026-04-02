@@ -592,9 +592,14 @@ async function handleAddCustom(e) {
         serviceType = 'cloudmail';
         const domainInput = formData.get('cm_domain');
         // 处理域名：如果包含逗号，转换为数组；否则保持字符串
-        let domain = domainInput;
-        if (domainInput && domainInput.includes(',')) {
-            domain = domainInput.split(',').map(d => d.trim()).filter(d => d);
+        let domain = null;
+        if (domainInput && domainInput.trim()) {
+            if (domainInput.includes(',')) {
+                domain = domainInput.split(',').map(d => d.trim()).filter(d => d);
+                if (domain.length === 0) domain = null;
+            } else {
+                domain = domainInput.trim();
+            }
         }
         config = {
             base_url: formData.get('cm_base_url'),
@@ -602,10 +607,14 @@ async function handleAddCustom(e) {
             admin_password: formData.get('cm_admin_password'),
             domain: domain
         };
-        // 添加子域配置（如果有）
+        // 如果 admin_email 为空，设置为 null 以便后端自动生成
+        if (!config.admin_email || !config.admin_email.trim()) {
+            config.admin_email = null;
+        }
+        // 添加子域配置（包括空值，以支持清空操作）
         const subdomain = formData.get('cm_subdomain');
-        if (subdomain && subdomain.trim()) {
-            config.subdomain = subdomain.trim();
+        if (subdomain !== null && subdomain !== undefined) {
+            config.subdomain = subdomain.trim() || null;
         }
     } else {
         serviceType = 'imap_mail';
@@ -939,19 +948,28 @@ async function handleEditCustom(e) {
     } else if (subType === 'cloudmail') {
         const domainInput = formData.get('cm_domain');
         // 处理域名：如果包含逗号，转换为数组；否则保持字符串
-        let domain = domainInput;
-        if (domainInput && domainInput.includes(',')) {
-            domain = domainInput.split(',').map(d => d.trim()).filter(d => d);
+        let domain = null;
+        if (domainInput && domainInput.trim()) {
+            if (domainInput.includes(',')) {
+                domain = domainInput.split(',').map(d => d.trim()).filter(d => d);
+                if (domain.length === 0) domain = null;
+            } else {
+                domain = domainInput.trim();
+            }
         }
         config = {
             base_url: formData.get('cm_base_url'),
             admin_email: formData.get('cm_admin_email'),
             domain: domain
         };
-        // 添加子域配置（如果有）
+        // 如果 admin_email 为空，设置为 null 以便后端自动生成
+        if (!config.admin_email || !config.admin_email.trim()) {
+            config.admin_email = null;
+        }
+        // 添加子域配置（包括空值，以支持清空操作）
         const subdomain = formData.get('cm_subdomain');
-        if (subdomain && subdomain.trim()) {
-            config.subdomain = subdomain.trim();
+        if (subdomain !== null && subdomain !== undefined) {
+            config.subdomain = subdomain.trim() || null;
         }
         const pwd = formData.get('cm_admin_password');
         if (pwd && pwd.trim()) config.admin_password = pwd.trim();

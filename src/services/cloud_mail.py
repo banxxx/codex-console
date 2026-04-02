@@ -38,9 +38,9 @@ class CloudMailService(BaseEmailService):
         Args:
             config: 配置字典，支持以下键:
                 - base_url: API 基础地址 (必需)
-                - admin_email: 管理员邮箱 (必需)
+                - admin_email: 管理员邮箱 (可选，为空时自动生成 admin@域名)
                 - admin_password: 管理员密码 (必需)
-                - domain: 邮箱域名 (可选，用于生成邮箱地址)
+                - domain: 邮箱域名 (可选，为空时从 base_url 提取)
                 - subdomain: 子域名 (可选)，会插入到 @ 和域名之间，例如 subdomain="test" 会生成 xxx@test.example.com
                 - timeout: 请求超时时间，默认 30
                 - max_retries: 最大重试次数，默认 3
@@ -49,7 +49,7 @@ class CloudMailService(BaseEmailService):
         """
         super().__init__(EmailServiceType.CLOUDMAIL, name)
 
-        required_keys = ["base_url", "admin_email", "admin_password"]
+        required_keys = ["base_url", "admin_password"]
         missing_keys = [key for key in required_keys if not (config or {}).get(key)]
         if missing_keys:
             raise ValueError(f"缺少必需配置: {missing_keys}")
@@ -61,6 +61,11 @@ class CloudMailService(BaseEmailService):
         }
         self.config = {**default_config, **(config or {})}
         self.config["base_url"] = self.config["base_url"].rstrip("/")
+        
+        # 如果没有提供 admin_email，自动生成
+        if not self.config.get("admin_email"):
+            domain = self._extract_domain_from_url(self.config["base_url"])
+            self.config["admin_email"] = f"admin@{domain}"
 
         # 创建 requests session
         self.session = requests.Session()
@@ -77,6 +82,23 @@ class CloudMailService(BaseEmailService):
 
         # 缓存邮箱信息（实例级别）
         self._created_emails: Dict[str, Dict[str, Any]] = {}
+
+    def _extract_domain_from_url(self, url: str) -> str:
+        """
+        从 URL 中提取域名
+        
+        Args:
+            url: URL 地址，如 https://ukumbuko.us.ci
+            
+        Returns:
+            提取的域名，如 ukumbuko.us.ci
+        """
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        domain = parsed.netloc or parsed.path.split('/')[0]
+        if not domain:
+            raise ValueError(f"无法从 URL 提取域名: {url}")
+        return domain
 
     def _generate_token(self) -> str:
         """
@@ -248,16 +270,21 @@ class CloudMailService(BaseEmailService):
         if not domain:
             domain_config = self.config.get("domain")
             if not domain_config:
-                raise EmailServiceError("未配置邮箱域名，无法生成邮箱地址")
-            
-            # 支持多个域名（列表）或单个域名（字符串）
-            if isinstance(domain_config, list):
-                if not domain_config:
-                    raise EmailServiceError("域名列表为空")
-                # 随机选择一个域名
-                domain = random.choice(domain_config)
+                # 如果没有配置域名，从 base_url 提取
+                base_url = self.config.get("base_url")
+                if base_url:
+                    domain = self._extract_domain_from_url(base_url)
+                else:
+                    raise EmailServiceError("未配置邮箱域名，且无法从 API 地址提取域名")
             else:
-                domain = domain_config
+                # 支持多个域名（列表）或单个域名（字符串）
+                if isinstance(domain_config, list):
+                    if not domain_config:
+                        raise EmailServiceError("域名列表为空")
+                    # 随机选择一个域名
+                    domain = random.choice(domain_config)
+                else:
+                    domain = domain_config
 
         # 如果提供了子域，插入到域名前面
         if subdomain:

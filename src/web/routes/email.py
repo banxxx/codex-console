@@ -452,8 +452,12 @@ async def update_email_service(service_id: int, request: EmailServiceUpdate):
             # 合并配置而不是替换
             current_config = normalize_email_service_config(service.service_type, service.config)
             merged_config = {**current_config, **request.config}
-            # 移除空值
-            merged_config = {k: v for k, v in merged_config.items() if v}
+            # 移除空值，但保留 None 值以支持清空字段
+            merged_config = {k: v for k, v in merged_config.items() if v is not None and v != ''}
+            # 对于 None 值，从配置中删除该字段
+            for k, v in request.config.items():
+                if v is None and k in merged_config:
+                    del merged_config[k]
             update_data["config"] = normalize_email_service_config(service.service_type, merged_config)
         if request.enabled is not None:
             update_data["enabled"] = request.enabled
