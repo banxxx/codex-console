@@ -52,6 +52,8 @@ let batchWsReconnectAttempts = 0;
 let wsManualClose = false;
 let batchWsManualClose = false;
 let autoMonitorLastLogIndex = 0;
+let dashboardLayoutSyncFrame = null;
+let dashboardLayoutObserver = null;
 
 const WS_RECONNECT_BASE_DELAY = 1000;
 const WS_RECONNECT_MAX_DELAY = 10000;
@@ -73,6 +75,7 @@ const elements = {
     cancelBtn: document.getElementById('cancel-btn'),
     taskStatusRow: document.getElementById('task-status-row'),
     batchProgressSection: document.getElementById('batch-progress-section'),
+    consoleCard: document.getElementById('console-card'),
     consoleLog: document.getElementById('console-log'),
     clearLogBtn: document.getElementById('clear-log-btn'),
     // 任务状态
@@ -93,6 +96,10 @@ const elements = {
     batchFailed: document.getElementById('batch-failed'),
     batchRemaining: document.getElementById('batch-remaining'),
     // 已注册账号
+    layoutGrid: document.querySelector('.two-column-layout'),
+    registrationSettingsCard: document.querySelector('.registration-settings-card'),
+    recentAccountsCard: document.querySelector('.recent-accounts-card'),
+    recentAccountsScroll: document.getElementById('recent-accounts-scroll'),
     recentAccountsTable: document.getElementById('recent-accounts-table'),
     refreshAccountsBtn: document.getElementById('refresh-accounts-btn'),
     // 今日统计
@@ -161,6 +168,7 @@ const elements = {
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     initEventListeners();
+    initRegistrationDashboardLayoutSync();
     handleModeChange({ target: elements.regMode });
     loadAvailableServices();
     loadRecentAccounts();
@@ -176,6 +184,67 @@ document.addEventListener('DOMContentLoaded', () => {
     initScheduleForm();
     loadScheduledJobs();
 });
+
+function scheduleRegistrationDashboardLayoutSync() {
+    if (dashboardLayoutSyncFrame !== null) {
+        cancelAnimationFrame(dashboardLayoutSyncFrame);
+    }
+
+    dashboardLayoutSyncFrame = requestAnimationFrame(() => {
+        dashboardLayoutSyncFrame = null;
+        syncRegistrationDashboardLayout();
+    });
+}
+
+function syncRegistrationDashboardLayout() {
+    const {
+        layoutGrid,
+        registrationSettingsCard,
+        consoleCard,
+        recentAccountsCard,
+        recentAccountsScroll,
+    } = elements;
+
+    if (!layoutGrid || !registrationSettingsCard || !consoleCard || !recentAccountsCard || !recentAccountsScroll) {
+        return;
+    }
+
+    recentAccountsScroll.style.maxHeight = '';
+
+    if (window.innerWidth <= 1024) {
+        return;
+    }
+
+    const gridStyles = window.getComputedStyle(layoutGrid);
+    const rowGap = parseFloat(gridStyles.rowGap || '') || parseFloat(gridStyles.gap || '') || 24;
+    const registrationHeight = registrationSettingsCard.getBoundingClientRect().height;
+    const consoleHeight = consoleCard.getBoundingClientRect().height;
+    const recentCardHeight = recentAccountsCard.getBoundingClientRect().height;
+    const recentScrollHeight = recentAccountsScroll.getBoundingClientRect().height;
+    const recentCardChrome = Math.max(0, recentCardHeight - recentScrollHeight);
+    const availableScrollHeight = Math.floor(registrationHeight - consoleHeight - rowGap - recentCardChrome);
+
+    if (Number.isFinite(availableScrollHeight) && availableScrollHeight > 120) {
+        recentAccountsScroll.style.maxHeight = `${availableScrollHeight}px`;
+    }
+}
+
+function initRegistrationDashboardLayoutSync() {
+    scheduleRegistrationDashboardLayoutSync();
+    window.addEventListener('resize', scheduleRegistrationDashboardLayoutSync);
+
+    if ('ResizeObserver' in window) {
+        dashboardLayoutObserver = new ResizeObserver(() => {
+            scheduleRegistrationDashboardLayoutSync();
+        });
+
+        [elements.registrationSettingsCard, elements.consoleCard].forEach((node) => {
+            if (node) {
+                dashboardLayoutObserver.observe(node);
+            }
+        });
+    }
+}
 
 // 初始化注册后自动操作选项（CPA / Sub2API / TM / new-api）
 async function initAutoUploadOptions() {
@@ -631,6 +700,8 @@ function handleModeChange(e) {
         updateAutoMonitorHeader('idle', null);
         elements.cancelBtn.disabled = true;
     }
+
+    scheduleRegistrationDashboardLayoutSync();
 }
 
 // 并发模式切换（批量）
@@ -1870,6 +1941,8 @@ async function loadRecentAccounts() {
 
     } catch (error) {
         console.error('加载账号列表失败:', error);
+    } finally {
+        scheduleRegistrationDashboardLayoutSync();
     }
 }
 
@@ -1938,7 +2011,7 @@ function updateTodayStatsResetText() {
     const remain = Math.max(0, next.getTime() - now.getTime());
     const hours = Math.floor(remain / 3600000);
     const minutes = Math.floor((remain % 3600000) / 60000);
-    elements.todayStatsReset.textContent = `重置剩余 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    elements.todayStatsReset.textContent = "每日凌晨重置";
 }
 
 function startTodayStatsResetTicker() {

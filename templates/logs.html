@@ -86,8 +86,48 @@
             align-items: center;
             flex-wrap: wrap;
         }
-        .cleanup-inline input {
-            width: 120px;
+        .cleanup-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 152px;
+            padding: 10px 12px;
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            background: var(--surface-hover);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+        }
+        .cleanup-field-label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            line-height: 1;
+            color: var(--text-muted);
+            letter-spacing: 0.02em;
+        }
+        .cleanup-input {
+            width: 100%;
+            min-width: 0;
+            height: 38px;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface);
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            font-variant-numeric: tabular-nums;
+            transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+        }
+        .cleanup-input:hover {
+            border-color: var(--text-muted);
+        }
+        .cleanup-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px var(--primary-light);
+            background: var(--surface);
+        }
+        .cleanup-input::placeholder {
+            color: var(--text-muted);
         }
         .hint-inline {
             font-size: 0.75rem;
@@ -109,11 +149,11 @@
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
             .log-line { grid-template-columns: 1fr; }
+            .cleanup-field { width: 100%; }
         }
     </style>
 </head>
 <body>
-    {% include "partials/site_notice.html" %}
     <div class="container">
         <nav class="navbar">
             <div class="nav-brand">
@@ -196,8 +236,14 @@
 
                     <div class="cleanup-inline">
                         <span class="hint-inline">清理策略：</span>
-                        <input id="cleanup-retention-days" type="number" min="1" max="3650" value="30" placeholder="保留天数">
-                        <input id="cleanup-max-rows" type="number" min="1000" max="5000000" value="50000" placeholder="最大保留条数">
+                        <label class="cleanup-field" for="cleanup-retention-days">
+                            <span class="cleanup-field-label">保留天数</span>
+                            <input id="cleanup-retention-days" class="cleanup-input" type="number" min="1" max="3650" value="30" placeholder="例如 30">
+                        </label>
+                        <label class="cleanup-field" for="cleanup-max-rows">
+                            <span class="cleanup-field-label">最大保留条数</span>
+                            <input id="cleanup-max-rows" class="cleanup-input" type="number" min="1000" max="5000000" value="50000" placeholder="例如 50000">
+                        </label>
                         <button id="cleanup-logs-btn" class="btn btn-danger">立即清理</button>
                         <button id="clear-logs-btn" class="btn btn-danger">清空日志</button>
                         <span class="hint-inline">系统也会每小时自动清理一次</span>
@@ -247,11 +293,8 @@
 
     <script src="/static/js/utils.js?v={{ static_version }}"></script>
     <script src="/static/js/logs.js?v={{ static_version }}"></script>
-    {% include "partials/site_footer.html" %}
+    
 </body>
 </html>
-
-
-
 
 

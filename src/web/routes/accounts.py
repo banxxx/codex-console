@@ -2474,6 +2474,29 @@ def _build_inbox_config(db, service_type, email: str) -> dict:
         if "api_url" in cfg and "base_url" not in cfg:
             cfg["base_url"] = cfg.pop("api_url")
         return cfg
+        
+    if service_type == EST.CLOUDMAIL:
+        # 按域名后缀匹配，找不到则取 priority 最小的
+        domain = email.split("@")[1] if "@" in email else ""
+        services = db.query(EmailServiceModel).filter(
+            EmailServiceModel.service_type == "cloudmail",
+            EmailServiceModel.enabled == True
+        ).order_by(EmailServiceModel.priority.asc()).all()
+        svc = None
+        for s in services:
+            cfg = s.config or {}
+            cfg_domain = cfg.get("domain")
+            if cfg_domain == domain or (isinstance(cfg_domain, list) and domain in cfg_domain):
+                svc = s
+                break
+        if not svc and services:
+            svc = services[0]
+        if not svc:
+            return None
+        cfg = svc.config.copy()
+        if "api_url" in cfg and "base_url" not in cfg:
+            cfg["base_url"] = cfg.pop("api_url")
+        return cfg
 
     # 其余服务类型：直接按 service_type 查数据库
     type_map = {

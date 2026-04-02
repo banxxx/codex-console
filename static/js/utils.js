@@ -596,6 +596,461 @@ function throttle(func, limit) {
 // 格式化工具
 // ============================================
 
+const CUSTOM_SELECT_SYNC_EVENT = 'custom-select:sync';
+
+function installCustomSelectSyncHooks() {
+    if (window.__customSelectSyncHooksInstalled) return;
+    window.__customSelectSyncHooksInstalled = true;
+
+    const patchSelectProperty = (property) => {
+        const descriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, property);
+        if (!descriptor || !descriptor.configurable || typeof descriptor.get !== 'function' || typeof descriptor.set !== 'function') {
+            return;
+        }
+
+        Object.defineProperty(HTMLSelectElement.prototype, property, {
+            configurable: true,
+            enumerable: descriptor.enumerable,
+            get: descriptor.get,
+            set(value) {
+                const previous = descriptor.get.call(this);
+                descriptor.set.call(this, value);
+                const next = descriptor.get.call(this);
+                if (previous !== next) {
+                    this.dispatchEvent(new CustomEvent(CUSTOM_SELECT_SYNC_EVENT));
+                }
+            }
+        });
+    };
+
+    if (typeof HTMLSelectElement !== 'undefined') {
+        patchSelectProperty('value');
+        patchSelectProperty('selectedIndex');
+    }
+}
+
+class CustomSelectManager {
+    constructor() {
+        this.instances = new Map();
+        this.activeInstance = null;
+        this.dropdown = null;
+        this.documentObserver = null;
+        this.syncTimer = null;
+        this.handleDocumentPointerDown = this.handleDocumentPointerDown.bind(this);
+        this.handleWindowResize = this.handleWindowResize.bind(this);
+        this.handleWindowScroll = this.handleWindowScroll.bind(this);
+        this.handleDocumentKeydown = this.handleDocumentKeydown.bind(this);
+    }
+
+    init(root = document) {
+        if (typeof document === 'undefined' || !document.body) return;
+        installCustomSelectSyncHooks();
+        this.ensureDropdown();
+        this.enhanceAll(root);
+        this.observeDocument();
+        this.bindGlobalListeners();
+        this.queueSyncAll();
+    }
+
+    ensureDropdown() {
+        if (this.dropdown) return;
+        this.dropdown = document.createElement('div');
+        this.dropdown.className = 'ui-select-dropdown';
+        this.dropdown.setAttribute('role', 'listbox');
+        this.dropdown.hidden = true;
+        document.body.appendChild(this.dropdown);
+    }
+
+    bindGlobalListeners() {
+        if (this._globalListenersBound) return;
+        this._globalListenersBound = true;
+        document.addEventListener('pointerdown', this.handleDocumentPointerDown, true);
+        document.addEventListener('keydown', this.handleDocumentKeydown);
+        window.addEventListener('resize', this.handleWindowResize);
+        window.addEventListener('scroll', this.handleWindowScroll, true);
+    }
+
+    observeDocument() {
+        if (this.documentObserver || !document.body) return;
+        this.documentObserver = new MutationObserver((mutations) => {
+            let shouldRescan = false;
+
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (!(node instanceof Element)) continue;
+                    if (node.matches('select')) {
+                        this.enhance(node);
+                        shouldRescan = true;
+                    }
+                    if (node.querySelector('select')) {
+                        this.enhanceAll(node);
+                        shouldRescan = true;
+                    }
+                }
+
+                if (this.activeInstance && mutation.removedNodes.length > 0) {
+                    for (const node of mutation.removedNodes) {
+                        if (node instanceof Element && node.contains(this.activeInstance.select)) {
+                            this.close();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (shouldRescan) {
+                this.queueSyncAll();
+            }
+        });
+
+        this.documentObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    queueSyncAll() {
+        clearTimeout(this.syncTimer);
+        this.syncTimer = setTimeout(() => this.syncAll(), 0);
+    }
+
+    syncAll() {
+        this.instances.forEach((instance) => this.syncInstance(instance, this.activeInstance === instance));
+    }
+
+    enhanceAll(root = document) {
+        const selects = [];
+        if (root instanceof Element && root.matches('select')) {
+            selects.push(root);
+        }
+        if (root.querySelectorAll) {
+            selects.push(...root.querySelectorAll('select'));
+        }
+        selects.forEach((select) => this.enhance(select));
+    }
+
+    shouldEnhance(select) {
+        if (!(select instanceof HTMLSelectElement)) return false;
+        if (this.instances.has(select)) return false;
+        if (select.multiple || Number(select.size || 0) > 1) return false;
+        if (select.dataset.nativeSelect === 'true') return false;
+        if (select.closest('.ui-select-shell')) return false;
+        return true;
+    }
+
+    enhance(select) {
+        if (!this.shouldEnhance(select)) return;
+
+        const shell = document.createElement('span');
+        shell.className = 'ui-select-shell';
+
+        const style = window.getComputedStyle(select);
+        const parentRect = select.parentElement?.getBoundingClientRect();
+        const selectRect = select.getBoundingClientRect();
+        const fillsParent = parentRect && Math.abs(selectRect.width - parentRect.width) <= 4;
+        const insideFieldGroup = Boolean(select.closest('.form-group, .form-row, .modal-body, .settings-form-grid'));
+        if (style.display === 'block' || fillsParent || insideFieldGroup) {
+            shell.classList.add('ui-select-shell-block');
+        }
+
+        select.parentNode.insertBefore(shell, select);
+        shell.appendChild(select);
+        select.classList.add('ui-select-native');
+        select.setAttribute('data-custom-select-ready', 'true');
+
+        const trigger = document.createElement('button');
+        trigger.type = 'button';
+        trigger.className = 'ui-select-trigger';
+        trigger.setAttribute('aria-haspopup', 'listbox');
+        trigger.innerHTML = `
+            <span class="ui-select-trigger-value"></span>
+            <span class="ui-select-trigger-icon" aria-hidden="true"></span>
+        `;
+        shell.appendChild(trigger);
+
+        const instance = {
+            select,
+            shell,
+            trigger,
+            triggerValue: trigger.querySelector('.ui-select-trigger-value'),
+            observer: null,
+        };
+
+        const observer = new MutationObserver(() => {
+            this.syncInstance(instance, this.activeInstance === instance);
+        });
+        observer.observe(select, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['disabled', 'label', 'selected', 'hidden'],
+        });
+        instance.observer = observer;
+
+        select.addEventListener('change', () => this.syncInstance(instance, this.activeInstance === instance));
+        select.addEventListener(CUSTOM_SELECT_SYNC_EVENT, () => this.syncInstance(instance, this.activeInstance === instance));
+
+        if (select.form) {
+            select.form.addEventListener('reset', () => {
+                setTimeout(() => this.syncInstance(instance, this.activeInstance === instance), 0);
+            });
+        }
+
+        trigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            if (select.disabled) return;
+            if (this.activeInstance === instance) {
+                this.close();
+                return;
+            }
+            this.open(instance);
+        });
+
+        trigger.addEventListener('keydown', (event) => {
+            if (select.disabled) return;
+
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                if (this.activeInstance === instance) {
+                    this.close();
+                } else {
+                    this.open(instance);
+                }
+                return;
+            }
+
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                this.moveSelection(instance, 1);
+                return;
+            }
+
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                this.moveSelection(instance, -1);
+            }
+        });
+
+        this.instances.set(select, instance);
+        this.syncInstance(instance, false);
+    }
+
+    moveSelection(instance, step) {
+        const options = Array.from(instance.select.options).filter((option) => !option.disabled && !option.hidden);
+        if (!options.length) return;
+        const currentIndex = Math.max(0, options.findIndex((option) => option.value === instance.select.value));
+        const targetIndex = Math.min(options.length - 1, Math.max(0, currentIndex + step));
+        const targetOption = options[targetIndex];
+        if (!targetOption) return;
+        this.selectOption(instance, targetOption, { keepOpen: this.activeInstance === instance });
+    }
+
+    syncInstance(instance, shouldRebuild) {
+        if (!instance || !document.body.contains(instance.select)) return;
+
+        const selectedOption = instance.select.selectedOptions?.[0] || instance.select.options[instance.select.selectedIndex] || null;
+        const selectedText = selectedOption ? selectedOption.textContent.trim() : '';
+        const placeholder = instance.select.dataset.placeholder || instance.select.getAttribute('placeholder') || '请选择';
+        const showPlaceholder = !selectedText || (!instance.select.value && selectedOption?.disabled);
+
+        instance.triggerValue.textContent = showPlaceholder ? placeholder : selectedText;
+        instance.trigger.title = showPlaceholder ? placeholder : selectedText;
+        instance.trigger.disabled = instance.select.disabled;
+        instance.shell.classList.toggle('is-disabled', instance.select.disabled);
+        instance.shell.classList.toggle('is-placeholder', showPlaceholder);
+        instance.shell.classList.toggle('is-open', this.activeInstance === instance);
+        instance.trigger.setAttribute('aria-expanded', this.activeInstance === instance ? 'true' : 'false');
+
+        if (this.activeInstance === instance) {
+            if (shouldRebuild) {
+                this.buildDropdown(instance);
+            }
+            this.positionDropdown(instance);
+        }
+    }
+
+    open(instance) {
+        if (!instance || instance.select.disabled) return;
+        this.ensureDropdown();
+        if (this.activeInstance && this.activeInstance !== instance) {
+            this.close();
+        }
+        this.activeInstance = instance;
+        instance.shell.classList.add('is-open');
+        this.buildDropdown(instance);
+        this.dropdown.hidden = false;
+        this.dropdown.classList.add('active');
+        this.positionDropdown(instance);
+        instance.trigger.setAttribute('aria-expanded', 'true');
+    }
+
+    close() {
+        if (!this.activeInstance) return;
+        this.activeInstance.shell.classList.remove('is-open');
+        this.activeInstance.trigger.setAttribute('aria-expanded', 'false');
+        this.activeInstance = null;
+        if (this.dropdown) {
+            this.dropdown.classList.remove('active');
+            this.dropdown.hidden = true;
+            this.dropdown.innerHTML = '';
+        }
+    }
+
+    buildDropdown(instance) {
+        this.dropdown.innerHTML = '';
+
+        const optionsContainer = document.createElement('div');
+        optionsContainer.className = 'ui-select-options';
+
+        Array.from(instance.select.children).forEach((child) => {
+            if (child instanceof HTMLOptGroupElement) {
+                const groupOptions = Array.from(child.children).filter((option) => option instanceof HTMLOptionElement && !option.hidden);
+                if (!groupOptions.length) return;
+
+                const group = document.createElement('div');
+                group.className = 'ui-select-group';
+
+                const label = document.createElement('div');
+                label.className = 'ui-select-group-label';
+                label.textContent = child.label;
+                group.appendChild(label);
+
+                groupOptions.forEach((option) => {
+                    group.appendChild(this.createOptionButton(instance, option));
+                });
+                optionsContainer.appendChild(group);
+                return;
+            }
+
+            if (child instanceof HTMLOptionElement && !child.hidden) {
+                optionsContainer.appendChild(this.createOptionButton(instance, child));
+            }
+        });
+
+        if (!optionsContainer.childElementCount) {
+            const empty = document.createElement('div');
+            empty.className = 'ui-select-empty';
+            empty.textContent = '暂无可选项';
+            optionsContainer.appendChild(empty);
+        }
+
+        this.dropdown.appendChild(optionsContainer);
+    }
+
+    createOptionButton(instance, option) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'ui-select-option';
+        button.setAttribute('role', 'option');
+        button.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+        button.disabled = option.disabled;
+        button.dataset.value = option.value;
+        if (option.selected) {
+            button.classList.add('is-selected');
+        }
+
+        const label = document.createElement('span');
+        label.className = 'ui-select-option-label';
+        label.textContent = option.textContent.trim();
+        button.appendChild(label);
+
+        const check = document.createElement('span');
+        check.className = 'ui-select-option-check';
+        check.textContent = '✓';
+        button.appendChild(check);
+
+        button.addEventListener('click', () => {
+            if (option.disabled) return;
+            this.selectOption(instance, option);
+        });
+
+        return button;
+    }
+
+    selectOption(instance, option, { keepOpen = false } = {}) {
+        const previousValue = instance.select.value;
+        instance.select.value = option.value;
+        instance.select.dispatchEvent(new Event('input', { bubbles: true }));
+        if (previousValue !== instance.select.value) {
+            instance.select.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+            this.syncInstance(instance, true);
+        }
+
+        if (!keepOpen) {
+            this.close();
+            instance.trigger.focus();
+        } else {
+            this.buildDropdown(instance);
+            this.positionDropdown(instance);
+        }
+    }
+
+    positionDropdown(instance) {
+        if (!this.dropdown || !instance) return;
+
+        const viewportPadding = 12;
+        const triggerRect = instance.trigger.getBoundingClientRect();
+        const availableWidth = window.innerWidth - viewportPadding * 2;
+        const desiredWidth = Math.max(triggerRect.width, 180);
+        const dropdownWidth = Math.min(desiredWidth, availableWidth);
+
+        this.dropdown.style.width = `${dropdownWidth}px`;
+        this.dropdown.style.maxHeight = `${Math.min(320, window.innerHeight - viewportPadding * 2)}px`;
+
+        const dropdownRect = this.dropdown.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - triggerRect.bottom - viewportPadding;
+        const spaceAbove = triggerRect.top - viewportPadding;
+        const shouldOpenUp = spaceBelow < Math.min(dropdownRect.height, 260) && spaceAbove > spaceBelow;
+        const top = shouldOpenUp
+            ? Math.max(viewportPadding, triggerRect.top - dropdownRect.height - 8)
+            : Math.min(window.innerHeight - dropdownRect.height - viewportPadding, triggerRect.bottom + 8);
+
+        const unclampedLeft = triggerRect.left;
+        const left = Math.min(
+            Math.max(viewportPadding, unclampedLeft),
+            Math.max(viewportPadding, window.innerWidth - dropdownWidth - viewportPadding)
+        );
+
+        this.dropdown.style.top = `${Math.round(top)}px`;
+        this.dropdown.style.left = `${Math.round(left)}px`;
+    }
+
+    handleDocumentPointerDown(event) {
+        if (!this.activeInstance) return;
+        if (this.activeInstance.shell.contains(event.target)) return;
+        if (this.dropdown && this.dropdown.contains(event.target)) return;
+        this.close();
+    }
+
+    handleWindowResize() {
+        if (this.activeInstance) {
+            this.positionDropdown(this.activeInstance);
+            return;
+        }
+        this.syncAll();
+    }
+
+    handleWindowScroll(event) {
+        if (!this.activeInstance) return;
+        const scrollTarget = event?.target;
+        if (scrollTarget instanceof Element) {
+            if (this.dropdown?.contains(scrollTarget) || this.activeInstance.shell.contains(scrollTarget)) {
+                return;
+            }
+        }
+        this.close();
+    }
+
+    handleDocumentKeydown(event) {
+        if (event.key === 'Escape' && this.activeInstance) {
+            this.close();
+        }
+    }
+}
+
+const customSelects = new CustomSelectManager();
+
 const format = {
     date(dateStr) {
         if (!dateStr) return '-';
@@ -816,6 +1271,9 @@ const storage = {
 document.addEventListener('DOMContentLoaded', () => {
     // 初始化主题
     theme.applyTheme();
+    customSelects.init();
+    window.requestAnimationFrame(() => customSelects.queueSyncAll());
+    window.setTimeout(() => customSelects.queueSyncAll(), 0);
 
     // 全局键盘快捷键
     document.addEventListener('keydown', (e) => {
@@ -846,6 +1304,11 @@ window.storage = storage;
 window.delegate = delegate;
 window.debounce = debounce;
 window.throttle = throttle;
+window.customSelects = customSelects;
+window.refreshCustomSelects = (root = document) => {
+    customSelects.enhanceAll(root);
+    customSelects.queueSyncAll();
+};
 window.getStatusText = getStatusText;
 window.getStatusClass = getStatusClass;
 window.getServiceTypeText = getServiceTypeText;

@@ -35,6 +35,13 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function closeAllAccountMoreMenus() {
+    document.querySelectorAll('#accounts-table .dropdown-menu.active').forEach((menu) => {
+        resetMoreMenuPosition(menu);
+        menu.classList.remove('active');
+    });
+}
+
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -425,8 +432,11 @@ function initEventListeners() {
     document.addEventListener('click', () => {
         elements.exportMenu.classList.remove('active');
         uploadMenu.classList.remove('active');
-        document.querySelectorAll('#accounts-table .dropdown-menu.active').forEach(m => m.classList.remove('active'));
+        closeAllAccountMoreMenus();
     });
+
+    window.addEventListener('resize', closeAllAccountMoreMenus);
+    window.addEventListener('scroll', closeAllAccountMoreMenus, true);
 }
 
 function formatSchedulerTime(value) {
@@ -748,7 +758,7 @@ function renderAccounts(accounts) {
                     <button class="btn btn-secondary btn-sm" onclick="checkInboxCode(${account.id})">收件箱</button>
                     <div class="dropdown" style="position:relative;">
                         <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();toggleMoreMenu(this)">更多</button>
-                        <div class="dropdown-menu" style="min-width:100px;">
+                        <div class="dropdown-menu account-more-menu" style="min-width:100px;">
                             <a href="#" class="dropdown-item" onclick="event.preventDefault();closeMoreMenu(this);refreshToken(${account.id})">刷新</a>
                             <a href="#" class="dropdown-item" onclick="event.preventDefault();closeMoreMenu(this);uploadAccount(${account.id})">上传</a>
                             <a href="#" class="dropdown-item" onclick="event.preventDefault();closeMoreMenu(this);markAccountLabel(${account.id}, '${escapeHtml(account.account_label || account.role_tag || 'none')}')">标号</a>
@@ -2260,15 +2270,79 @@ async function handleBatchUploadTm() {
 // 更多菜单切换
 function toggleMoreMenu(btn) {
     const menu = btn.nextElementSibling;
+    if (!menu) return;
     const isActive = menu.classList.contains('active');
-    // 关闭所有其他更多菜单
-    document.querySelectorAll('.dropdown-menu.active').forEach(m => m.classList.remove('active'));
-    if (!isActive) menu.classList.add('active');
+    document.querySelectorAll('.dropdown-menu.active').forEach((item) => {
+        resetMoreMenuPosition(item);
+        item.classList.remove('active');
+    });
+    if (isActive) {
+        return;
+    }
+
+    menu.classList.add('active');
+    positionMoreMenu(btn, menu);
 }
 
 function closeMoreMenu(el) {
     const menu = el.closest('.dropdown-menu');
-    if (menu) menu.classList.remove('active');
+    if (menu) {
+        resetMoreMenuPosition(menu);
+        menu.classList.remove('active');
+    }
+}
+
+function resetMoreMenuPosition(menu) {
+    menu.style.position = '';
+    menu.style.left = '';
+    menu.style.top = '';
+    menu.style.right = '';
+    menu.style.bottom = '';
+    menu.style.maxHeight = '';
+    menu.style.overflowY = '';
+    menu.style.zIndex = '';
+}
+
+function positionMoreMenu(btn, menu) {
+    const gap = 4;
+    const viewportPadding = 8;
+    const buttonRect = btn.getBoundingClientRect();
+
+    menu.style.position = 'fixed';
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.style.maxHeight = '';
+    menu.style.overflowY = '';
+    menu.style.zIndex = '1200';
+
+    const menuRect = menu.getBoundingClientRect();
+    const menuHeight = Math.ceil(menuRect.height);
+    const menuWidth = Math.ceil(menuRect.width);
+    const spaceBelow = window.innerHeight - buttonRect.bottom - gap - viewportPadding;
+    const spaceAbove = buttonRect.top - gap - viewportPadding;
+    const openUpward = menuHeight > spaceBelow && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(120, openUpward ? spaceAbove : spaceBelow);
+
+    let top = openUpward
+        ? buttonRect.top - Math.min(menuHeight, availableHeight) - gap
+        : buttonRect.bottom + gap;
+    let left = buttonRect.right - menuWidth;
+
+    top = Math.max(
+        viewportPadding,
+        Math.min(top, window.innerHeight - viewportPadding - Math.min(menuHeight, availableHeight)),
+    );
+    left = Math.max(
+        viewportPadding,
+        Math.min(left, window.innerWidth - viewportPadding - menuWidth),
+    );
+
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.maxHeight = `${Math.floor(availableHeight)}px`;
+    menu.style.overflowY = menuHeight > availableHeight ? 'auto' : '';
 }
 
 // 保存账号 Cookies

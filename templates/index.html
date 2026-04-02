@@ -9,26 +9,53 @@
     <style>
         /* 两栏布局 */
         .two-column-layout {
-            display: grid;
-            grid-template-columns: minmax(300px, 3fr) minmax(0, 7fr);
+            display: flex;
+            flex-direction: column;
             gap: var(--spacing-lg);
-            align-items: start;
             width: 100%;
             margin: 0;
             box-sizing: border-box;
         }
 
-        .left-panel {
-            position: sticky;
-            top: calc(60px + var(--spacing-lg));
+        .dashboard-top-layout,
+        .dashboard-bottom-layout {
+            display: grid;
+            grid-template-columns: minmax(320px, 3fr) minmax(0, 7fr);
+            gap: var(--spacing-lg);
+            width: 100%;
             min-width: 0;
         }
 
-        .right-panel {
-            display: flex;
+        .dashboard-top-layout {
+            align-items: stretch;
+        }
+
+        .left-panel,
+        .right-panel,
+        .panel-stack {
+            min-width: 0;
+        }
+
+        .dashboard-right-stack {
             flex-direction: column;
             gap: var(--spacing-lg);
             min-width: 0;
+            min-height: 0;
+        }
+
+        .registration-settings-card,
+        .dashboard-console-card,
+        .recent-accounts-card,
+        .schedule-form-card,
+        .schedule-jobs-card {
+            min-width: 0;
+        }
+
+        .recent-accounts-card .card-body {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            margin-top: 20px;
         }
 
         /* 任务状态行 */
@@ -59,7 +86,8 @@
 
         /* 已注册账号列表 */
         .recent-accounts-table {
-            max-height: 300px;
+            flex: 1;
+            min-height: 0;
             overflow-y: auto;
         }
 
@@ -142,7 +170,7 @@
             width: 100%;
             margin-left: 0;
             margin-right: 0;
-            margin-bottom: var(--spacing-lg);
+            margin-bottom: var(--spacing-md);
             box-sizing: border-box;
         }
 
@@ -150,6 +178,11 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            padding: 14px 18px;
+        }
+
+        .today-stats-strip .card-body {
+            padding: 0 18px 18px;
         }
 
         .panel-stack {
@@ -188,20 +221,20 @@
         .today-stats-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 14px;
-            margin-top: 4px;
+            gap: 10px;
+            margin-top: 10px;
         }
 
         .today-stat-item {
             --stat-color: #60a5fa;
             position: relative;
             overflow: hidden;
-            border-radius: 14px;
+            border-radius: 12px;
             background: #ffffff;
-            padding: 18px 24px;
+            padding: 14px 18px;
             text-align: center;
             border: 1px solid #d7dde8;
-            min-height: 128px;
+            min-height: 100px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -222,14 +255,14 @@
         .today-stat-label {
             order: 2;
             color: #64748b;
-            margin-top: 6px;
+            margin-top: 4px;
             line-height: 1.35;
-            font-size: 0.82rem;
+            font-size: 0.76rem;
         }
 
         .today-stat-value {
             order: 1;
-            font-size: clamp(1.8rem, 2.4vw, 2.2rem);
+            font-size: clamp(1.45rem, 2vw, 1.85rem);
             line-height: 1.1;
             font-weight: 700;
             white-space: nowrap;
@@ -244,7 +277,7 @@
         .today-stat-rate { --stat-color: #f59e0b; }
 
         .today-stat-rate .today-stat-value {
-            font-size: clamp(1.7rem, 2.3vw, 2.05rem);
+            font-size: clamp(1.35rem, 1.9vw, 1.7rem);
         }
         .today-stat-rate .today-stat-value.rate-high { color: var(--primary-color); }
         .today-stat-rate .today-stat-value.rate-low { color: #ef4444; }
@@ -302,12 +335,9 @@
 
         /* 响应式 */
         @media (max-width: 1024px) {
-            .two-column-layout {
+            .dashboard-top-layout,
+            .dashboard-bottom-layout {
                 grid-template-columns: 1fr;
-            }
-
-            .left-panel {
-                position: static;
             }
 
             .today-stats-grid {
@@ -349,7 +379,7 @@
             <div class="card today-stats-strip">
                 <div class="card-header">
                     <h3>📊 今日统计</h3>
-                    <span class="today-stats-reset" id="today-stats-reset">重置剩余 --:--</span>
+                    <span class="today-stats-reset" id="today-stats-reset">每日凌晨重置</span>
                 </div>
                 <div class="card-body">
                     <div class="today-stats-grid">
@@ -374,10 +404,10 @@
             </div>
 
             <div class="two-column-layout">
-                <!-- 左侧面板 - 注册设置 -->
-                <div class="left-panel">
-                    <div class="panel-stack">
-                    <div class="card">
+                <div class="dashboard-top-layout">
+                    <!-- 左侧面板 - 注册设置 -->
+                    <div class="left-panel">
+                        <div class="card registration-settings-card">
                         <div class="card-header">
                             <h3>📝 注册设置</h3>
                         </div>
@@ -386,12 +416,12 @@
                                 <div class="form-group">
                                     <label for="email-service">邮箱服务</label>
                                     <select id="email-service" name="email_service" required>
+                                        <option value="cloudmail">CloudMail</option>
                                         <option value="tempmail:default">Tempmail.lol (临时邮箱)</option>
                                         <option value="yyds_mail:default">YYDS Mail</option>
                                         <option value="outlook">Outlook</option>
                                         <option value="moe_mail">MoeMail</option>
                                         <option value="temp_mail">Temp-Mail 自部署</option>
-                                        <option value="cloudmail">CloudMail</option>
                                         <option value="duck_mail">DuckMail</option>
                                         <option value="freemail">Freemail</option>
                                         <option value="luckmail">LuckMail</option>
@@ -631,73 +661,13 @@
                             </form>
                         </div>
                     </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <h3>⏰ 计划注册-上传</h3>
-                        </div>
-                        <div class="card-body">
-                            <form id="schedule-form">
-                                <div class="schedule-form-grid">
-                                    <div class="form-group full-width">
-                                        <label for="schedule-name">计划名称</label>
-                                        <input type="text" id="schedule-name" maxlength="100" placeholder="例如：每 3 天定时注册并上传">
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="schedule-trigger-type">触发方式</label>
-                                        <select id="schedule-trigger-type">
-                                            <option value="interval">固定间隔</option>
-                                            <option value="timepoint">周期性时间点</option>
-                                        </select>
-                                    </div>
-
-                                    <div class="form-group">
-                                        <label for="schedule-enabled">启用状态</label>
-                                        <select id="schedule-enabled">
-                                            <option value="true">启用</option>
-                                            <option value="false">暂停</option>
-                                        </select>
-                                    </div>
-
-                                    <div id="schedule-interval-fields" class="form-group full-width">
-                                        <label for="schedule-interval-minutes">间隔分钟数</label>
-                                        <input type="number" id="schedule-interval-minutes" min="1" value="60">
-                                    </div>
-
-                                    <div id="schedule-timepoint-fields" class="full-width" style="display: none;">
-                                        <div class="schedule-form-grid">
-                                            <div class="form-group">
-                                                <label for="schedule-every-n-days">每几天触发</label>
-                                                <input type="number" id="schedule-every-n-days" min="1" value="1">
-                                            </div>
-                                            <div class="form-group">
-                                                <label for="schedule-time-of-day">触发时间</label>
-                                                <input type="time" id="schedule-time-of-day" value="09:00">
-                                            </div>
-                                            <div class="form-group full-width">
-                                                <label for="schedule-start-date">开始日期</label>
-                                                <input type="date" id="schedule-start-date">
-                                                <div class="schedule-muted">不填则默认从今天开始计算周期。</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="form-actions" style="margin-top: var(--spacing-md); flex-direction: column;">
-                                    <button type="submit" class="btn btn-primary" id="save-schedule-btn" style="width: 100%;">保存计划任务</button>
-                                    <button type="button" class="btn btn-secondary" id="cancel-schedule-edit-btn" style="width: 100%; display: none;">取消编辑</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                    </div>
                 </div>
 
                 <!-- 右侧面板 -->
                 <div class="right-panel">
-                    <!-- 监控台 -->
-                    <div class="card" id="console-card">
+                    <div class="dashboard-right-stack">
+                        <!-- 监控台 -->
+                        <div class="card dashboard-console-card" id="console-card">
                             <div class="card-header">
                                 <h3>💻 监控台</h3>
                                 <div style="display: flex; gap: var(--spacing-sm); align-items: center;">
@@ -757,9 +727,109 @@
                                 <div class="log-line info">[系统] 准备就绪，等待开始注册...</div>
                             </div>
                         </div>
+                        </div>
+
+                        <!-- 已注册账号列表 -->
+                        <div class="card recent-accounts-card">
+                            <div class="card-header">
+                                <h3>📋 已注册账号</h3>
+                                <div style="display: flex; gap: var(--spacing-sm);">
+                                    <button class="btn btn-ghost btn-sm" id="refresh-accounts-btn">🔄 刷新</button>
+                                    <a href="/accounts" class="btn btn-secondary btn-sm">查看全部</a>
+                                </div>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div class="recent-accounts-table" id="recent-accounts-scroll">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 50px;">ID</th>
+                                                <th>邮箱</th>
+                                                <th style="width: 120px;">密码</th>
+                                                <th style="width: 150px;">标签</th>
+                                                <th style="width: 80px;">状态</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="recent-accounts-table">
+                                            <tr>
+                                                <td colspan="5">
+                                                    <div class="empty-state" style="padding: var(--spacing-md);">
+                                                        <div class="empty-state-icon">📭</div>
+                                                        <div class="empty-state-title">暂无已注册账号</div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                </div>
+
+                <div class="dashboard-bottom-layout">
+                    <div class="card schedule-form-card">
+                        <div class="card-header">
+                            <h3>⏰ 计划注册-上传</h3>
+                        </div>
+                        <div class="card-body">
+                            <form id="schedule-form">
+                                <div class="schedule-form-grid">
+                                    <div class="form-group full-width">
+                                        <label for="schedule-name">计划名称</label>
+                                        <input type="text" id="schedule-name" maxlength="100" placeholder="例如：每 3 天定时注册并上传">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="schedule-trigger-type">触发方式</label>
+                                        <select id="schedule-trigger-type">
+                                            <option value="interval">固定间隔</option>
+                                            <option value="timepoint">周期性时间点</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="schedule-enabled">启用状态</label>
+                                        <select id="schedule-enabled">
+                                            <option value="true">启用</option>
+                                            <option value="false">暂停</option>
+                                        </select>
+                                    </div>
+
+                                    <div id="schedule-interval-fields" class="form-group full-width">
+                                        <label for="schedule-interval-minutes">间隔分钟数</label>
+                                        <input type="number" id="schedule-interval-minutes" min="1" value="60">
+                                    </div>
+
+                                    <div id="schedule-timepoint-fields" class="full-width" style="display: none;">
+                                        <div class="schedule-form-grid">
+                                            <div class="form-group">
+                                                <label for="schedule-every-n-days">每几天触发</label>
+                                                <input type="number" id="schedule-every-n-days" min="1" value="1">
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="schedule-time-of-day">触发时间</label>
+                                                <input type="time" id="schedule-time-of-day" value="09:00">
+                                            </div>
+                                            <div class="form-group full-width">
+                                                <label for="schedule-start-date">开始日期</label>
+                                                <input type="date" id="schedule-start-date">
+                                                <div class="schedule-muted">不填则默认从今天开始计算周期。</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-actions" style="margin-top: var(--spacing-md); flex-direction: column;">
+                                    <button type="submit" class="btn btn-primary" id="save-schedule-btn" style="width: 100%;">保存计划任务</button>
+                                    <button type="button" class="btn btn-secondary" id="cancel-schedule-edit-btn" style="width: 100%; display: none;">取消编辑</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
 
-                    <div class="card">
+                    <div class="card schedule-jobs-card">
                         <div class="card-header">
                             <h3>🗓️ 计划任务列表</h3>
                             <button class="btn btn-ghost btn-sm" id="refresh-schedules-btn">🔄 刷新</button>
@@ -789,42 +859,6 @@
                             </table>
                         </div>
                     </div>
-
-                    <!-- 已注册账号列表 -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h3>📋 已注册账号</h3>
-                            <div style="display: flex; gap: var(--spacing-sm);">
-                                <button class="btn btn-ghost btn-sm" id="refresh-accounts-btn">🔄 刷新</button>
-                                <a href="/accounts" class="btn btn-secondary btn-sm">查看全部</a>
-                            </div>
-                        </div>
-                        <div class="card-body" style="padding: 0;">
-                            <div class="recent-accounts-table">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th style="width: 50px;">ID</th>
-                                            <th>邮箱</th>
-                                            <th style="width: 120px;">密码</th>
-                                            <th style="width: 150px;">标签</th>
-                                            <th style="width: 80px;">状态</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="recent-accounts-table">
-                                        <tr>
-                                            <td colspan="5">
-                                                <div class="empty-state" style="padding: var(--spacing-md);">
-                                                    <div class="empty-state-icon">📭</div>
-                                                    <div class="empty-state-title">暂无已注册账号</div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
         </main>
@@ -832,13 +866,6 @@
 
     <script src="/static/js/utils.js?v={{ static_version }}"></script>
     <script src="/static/js/app.js?v={{ static_version }}"></script>
-    {% include "partials/site_footer.html" %}
+    
 </body>
 </html>
-
-
-
-
-
-
-
