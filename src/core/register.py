@@ -16,7 +16,8 @@ from datetime import datetime
 
 from curl_cffi import requests as cffi_requests
 
-from .anyauto.register_flow import AnyAutoRegistrationEngine
+# from .anyauto.register_flow import AnyAutoRegistrationEngine
+from .anyauto.refresh_token_registration_engine import RefreshTokenRegistrationEngine
 from .openai.oauth import OAuthManager, OAuthStart
 from .http_client import OpenAIHTTPClient, HTTPClientError
 from ..services import EmailServiceFactory, BaseEmailService, EmailServiceType
@@ -2817,23 +2818,49 @@ class RegistrationEngine:
 
     def _build_anyauto_fallback_result(
         self,
-        flow_result: Optional[Dict[str, Any]],
+        flow_result: Optional[Any],
         primary_error: str = "",
     ) -> RegistrationResult:
-        """Map PR60 AnyAuto V2 output into the current RegistrationResult structure."""
+        """Map fallback engine output into the current RegistrationResult structure."""
         result = RegistrationResult(success=False, logs=self.logs)
         result.email = str(self.email or "")
         result.password = str(self.password or "")
         result.device_id = str(self.device_id or "")
+        if isinstance(flow_result, dict):
+            normalized_flow_result = dict(flow_result)
+        else:
+            normalized_flow_result = {
+                "success": bool(getattr(flow_result, "success", False)),
+                "email": str(getattr(flow_result, "email", "") or ""),
+                "password": str(getattr(flow_result, "password", "") or ""),
+                "device_id": str(getattr(flow_result, "device_id", "") or ""),
+                "access_token": str(getattr(flow_result, "access_token", "") or ""),
+                "refresh_token": str(getattr(flow_result, "refresh_token", "") or ""),
+                "id_token": str(getattr(flow_result, "id_token", "") or ""),
+                "session_token": str(getattr(flow_result, "session_token", "") or ""),
+                "account_id": str(getattr(flow_result, "account_id", "") or ""),
+                "workspace_id": str(getattr(flow_result, "workspace_id", "") or ""),
+                "source": str(getattr(flow_result, "source", "") or "register"),
+                "error_message": str(getattr(flow_result, "error_message", "") or ""),
+                "metadata": dict(getattr(flow_result, "metadata", None) or {}),
+            }
 
-        if not flow_result or not flow_result.get("success"):
+        if normalized_flow_result.get("email"):
+            result.email = str(normalized_flow_result.get("email") or "")
+        if normalized_flow_result.get("password"):
+            result.password = str(normalized_flow_result.get("password") or "")
+        if normalized_flow_result.get("device_id"):
+            result.device_id = str(normalized_flow_result.get("device_id") or "")
+        flow_result = normalized_flow_result
+
+        if not flow_result or not normalized_flow_result.get("success"):
             fallback_error = str((flow_result or {}).get("error_message") or "注册失败").strip()
             if primary_error and fallback_error and fallback_error != primary_error:
                 result.error_message = f"{primary_error} | anyauto fallback: {fallback_error}"
             else:
                 result.error_message = fallback_error or primary_error or "注册失败"
             result.metadata = {
-                "registration_flow": "any-auto-register-fallback",
+                "registration_flow": "refresh-token-registration-fallback",
                 "fallback_attempted": True,
                 "primary_error": primary_error,
                 "fallback_success": False,
@@ -2847,7 +2874,7 @@ class RegistrationEngine:
         result.session_token = str(flow_result.get("session_token") or "")
         result.account_id = str(flow_result.get("account_id") or "")
         result.workspace_id = str(flow_result.get("workspace_id") or "")
-        result.source = "register"
+        result.source = str(flow_result.get("source") or "register")
 
         if not result.account_id:
             token_payload = result.access_token or result.id_token
@@ -2871,7 +2898,7 @@ class RegistrationEngine:
                 "email_service": self.email_service.service_type.value,
                 "proxy_used": self.proxy_url,
                 "registered_at": datetime.now().isoformat(),
-                "registration_flow": "any-auto-register-fallback",
+                "registration_flow": "refresh-token-registration-fallback",
                 "fallback_attempted": True,
                 "primary_error": primary_error,
                 "client_id": client_id,
@@ -2885,30 +2912,39 @@ class RegistrationEngine:
         return result
 
     def _run_anyauto_fallback(self, primary_error: str = "") -> RegistrationResult:
-        """Run the PR60 AnyAuto V2 engine as a controlled fallback."""
+        """Run the refresh-token registration engine as a controlled fallback."""
         settings = get_settings()
-        max_retries = int(getattr(settings, "registration_max_retries", 3) or 3)
         browser_mode = str(
             getattr(settings, "registration_anyauto_browser_mode", "protocol") or "protocol"
         ).strip()
 
-        flow_engine = AnyAutoRegistrationEngine(
+        # 旧逻辑保留：
+        # max_retries = int(getattr(settings, "registration_max_retries", 3) or 3)
+        # flow_engine = AnyAutoRegistrationEngine(
+        #     email_service=self.email_service,
+        #     proxy_url=self.proxy_url,
+        #     callback_logger=self._log,
+        #     max_retries=max_retries,
+        #     browser_mode=browser_mode or "protocol",
+        #     extra_config=None,
+        # )
+        flow_engine = RefreshTokenRegistrationEngine(
             email_service=self.email_service,
             proxy_url=self.proxy_url,
             callback_logger=self._log,
-            max_retries=max_retries,
             browser_mode=browser_mode or "protocol",
-            extra_config=None,
         )
         flow_result = flow_engine.run()
 
         self.email_info = flow_engine.email_info
         self.email = flow_engine.email
-        self.inbox_email = flow_engine.inbox_email
+        self.inbox_email = getattr(flow_engine, "inbox_email", None) or flow_engine.email
         self.password = flow_engine.password
         self.session = flow_engine.session
-        self.device_id = flow_engine.device_id
+        self.device_id = getattr(flow_engine, "device_id", None) or getattr(flow_engine, "_device_id", None)
 
+        # 旧逻辑保留：
+        # fallback_result = self._build_anyauto_fallback_result(flow_result, primary_error=primary_error)
         fallback_result = self._build_anyauto_fallback_result(flow_result, primary_error=primary_error)
         if fallback_result.session_token:
             self.session_token = fallback_result.session_token
@@ -2956,22 +2992,31 @@ class RegistrationEngine:
         return any(marker in error_text for marker in retryable_markers)
 
     def run(self) -> RegistrationResult:
-        """Run the current primary flow first, then selectively fall back to PR60 AnyAuto V2."""
-        primary_result = self._run_primary_registration()
-        if primary_result.success:
-            return primary_result
-
-        if not self._should_try_anyauto_fallback(primary_result):
-            return primary_result
-
-        primary_error = str(primary_result.error_message or "").strip()
-        self._log("主注册链路未成功，开始尝试 PR60 anyauto V2 回退流程...", "warning")
-        fallback_result = self._run_anyauto_fallback(primary_error=primary_error)
+        """Run the refresh-token engine directly as the active registration flow."""
+        # 旧逻辑保留：
+        # primary_result = self._run_primary_registration()
+        # if primary_result.success:
+        #     return primary_result
+        #
+        # if not self._should_try_anyauto_fallback(primary_result):
+        #     return primary_result
+        #
+        # primary_error = str(primary_result.error_message or "").strip()
+        # self._log("主注册链路未成功，开始尝试 PR60 anyauto V2 回退流程...", "warning")
+        # fallback_result = self._run_anyauto_fallback(primary_error=primary_error)
+        # if fallback_result.success:
+        #     self._log("PR60 anyauto V2 回退流程成功，已补上 V2 注册兜底能力")
+        #     return fallback_result
+        #
+        # self._log(f"PR60 anyauto V2 回退流程也失败了: {fallback_result.error_message}", "warning")
+        # return fallback_result
+        self._log("开始直接使用 refresh token 注册流程...")
+        fallback_result = self._run_anyauto_fallback(primary_error="")
         if fallback_result.success:
-            self._log("PR60 anyauto V2 回退流程成功，已补上 V2 注册兜底能力")
+            self._log("refresh token 注册流程成功")
             return fallback_result
 
-        self._log(f"PR60 anyauto V2 回退流程也失败了: {fallback_result.error_message}", "warning")
+        self._log(f"refresh token 注册流程失败: {fallback_result.error_message}", "warning")
         return fallback_result
 
     def save_to_database(
